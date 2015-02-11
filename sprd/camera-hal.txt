@@ -1,0 +1,394 @@
+xb.pang@mediatek.com
+size = ((size + pagesize-1) & ~(pagesize-1));
+buffer个数：
+grallocbuf 8   800*480*3/2 *8 = 4M
+previewbuf 8  // copy到grallocbuf
+mRawHeap 1 // 20 << 20 = 24M
+mJpegHeap 1 // 20 << 20 = 24M
+mMiscHeap 1 // 50 << 20 = 35M
+
+const char* str_para = mParameters.get("capture-mode");
+str_para = normal; // zsl拍照时
+if (1 == mParameters.getInt("hdr")) {
+        mCaptureMode = CAMERA_HDR_MODE;
+    } else if ((1 == mParameters.getInt("zsl"))&&(1 != mParameters.getInt("capture-mode"))) {
+		mCaptureMode = CAMERA_ZSL_CONTINUE_SHOT_MODE;  // preview时
+    } else if ((1 != mParameters.getInt("zsl"))&&(1 != mParameters.getInt("capture-mode"))) {
+		mCaptureMode = CAMERA_NORMAL_CONTINUE_SHOT_MODE;
+    } else if (1 == mParameters.getInt("zsl")) {
+		mCaptureMode = CAMERA_ZSL_MODE;
+    } else {
+		mCaptureMode = mCaptureMode;
+    }
+
+1.camera_context        *g_cxt
+uint32_t                 prev_rot = 0
+uint32_t                 cap_rot = 0
+prev_rot_index = 0
+pre_frm_cnt    = 0;
+skip_mode = IMG_SKIP_SW
+uint32_t preview_skip_num = exp_info_ptr->preview_skip_num = sensor_info_ptr->preview_skip_num = 3
+hdr_cnt=0
+cap_mode = CAMERA_ZSL_MODE;//preview时
+	   CAMERA_ZSL_CONTINUE_SHOT_MODE；//调take_pic()时
+           CAMERA_NORMAL_MODE; //拍完照后
+is_working = 1 init后
+max_size.width = 3280
+max_size.height = 2464
+preview_fmt = yuv420sp
+preview_size=display_size.width  = mPreviewWidth
+preview_size=display_size.height = mPreviewHeight
+prev_phys_addr=mPreviewHeap->phys_addr
+prev_virt_addr=mPreviewHeap->data
+prev_mem_szie = PreviewHeap->phys_size   //8个buff的bytesize
+preview_status  = CMR_IDLE;// init or stop preview
+                   CMR_PREVIEW；//after preview
+prev_inited = cap_inited = 1
+prev_mem_num  = 8
+preview_rect.start_x = v4l2_cfg.cfg.src_img_rect.start_x; = 0
+preview_rect.start_y = v4l2_cfg.cfg.src_img_rect.start_y = 304
+preview_rect.width   = v4l2_cfg.cfg.src_img_rect.width = 3280
+preview_rect.height  = v4l2_cfg.cfg.src_img_rect.height = 1848
+
+thum_ready = 0;
+thum_size.width  = 320,;
+thum_size.height = 240;
+capture_size.width= picture_size.width  = mRawWidht=3264    jpeg size
+capture_size.height=picture_size.height = mRawHeight=1840
+capture_status  = CMR_IDLE;
+capture_raw_status  = CMR_IDLE;
+is_take_picture = TAKE_PICTURE_NO;
+                = TAKE_PICTURE_NEEDED；调take_pic后
+set_flag = 0x0
+cap_cnt = 0; 拍一张数量加1
+
+total_cap_num = CAMERA_CAP_FRM_CNT=4;
+total_capture_num = CAMERA_NORMAL_CAP_FRM_CNT=1;
+cap_original_fmt = IMG_DATA_TYPE_YUV420，，，，=2
+cap_orig_size.width    = 3280;
+cap_orig_size.height   = 1848;
+cap_target_fmt = V4L2_SENSOR_FORMAT_JPEG
+cap_zoom_mode = ZOOM_BY_CAP=0
+cap_2_mems.major_frm.buf_size = mRawHeap->phys_size;
+cap_2_mems.major_frm.addr_phy.addr_y = mRawHeap->phys_addr
+cap_2_mems.major_frm.addr_vir.addr_y = mRawHeap->data;
+cap_2_mems.minor_frm.buf_size = mMiscHeap->phys_size;
+cap_2_mems.minor_frm.addr_phy.addr_y = mMiscHeap->phys_addr;
+cap_2_mems.minor_frm.addr_vir.addr_y = mMiscHeap->data;
+cap_mem[0~3]
+cap_mem->target_yuv.addr_phy.addr_y = cap_2_frm->major_frm.addr_phy.addr_y;
+cap_mem->target_yuv.addr_vir.addr_y = cap_2_frm->major_frm.addr_vir.addr_y;
+cap_mem->target_yuv.addr_phy.addr_u = cap_mem->target_yuv.addr_phy.addr_y + channel_size;(3280*2464)
+cap_mem->target_yuv.addr_vir.addr_u = cap_mem->target_yuv.addr_vir.addr_y + channel_size;
+cap_mem->target_yuv.buf_size     = (channel_size * 3) >> 1;
+cap_mem->target_yuv.size.width   = 3280;
+cap_mem->target_yuv.size.height  = 2464;
+cap_mem->target_yuv.fmt          = IMG_DATA_TYPE_YUV420;
+yy_to_y = (3280*2464) - (3280*1848);
+cap_mem->cap_yuv.addr_phy.addr_y = cap_mem->target_yuv.addr_phy.addr_y + yy_to_y;
+cap_mem->cap_yuv.addr_vir.addr_y = cap_mem->target_yuv.addr_vir.addr_y + yy_to_y;
+cap_mem->cap_yuv.addr_phy.addr_u = cap_mem->target_yuv.addr_phy.addr_u + (yy_to_y >> 1);
+cap_mem->cap_yuv.addr_vir.addr_u = cap_mem->target_yuv.addr_vir.addr_u + (yy_to_y >> 1);
+cap_mem->cap_yuv.buf_size        = (channel_size * 3) >> 1;
+cap_mem->cap_yuv.size.width      = 3280;
+cap_mem->cap_yuv.size.height     = 1848;
+cap_mem->cap_yuv.fmt             = IMG_DATA_TYPE_YUV420;
+cap_mem->target_jpeg.addr_phy.addr_y = cap_2_frm->major_frm.addr_phy.addr_y + (3280*2464)*3/2;
+cap_mem->target_jpeg.addr_vir.addr_y = cap_2_frm->major_frm.addr_vir.addr_y +(3280*2464)*3/2;
+cap_mem->target_jpeg.buf_size = (3280*2464) + 64*1024
+
+	cap_mem->thum_yuv.buf_size = img_frame[THUM_YUV].buf_size;320*240*3/2
+	cap_mem->thum_yuv.addr_phy.addr_y = img_frame[THUM_YUV].addr_phy.addr_y;
+	cap_mem->thum_yuv.addr_vir.addr_y = img_frame[THUM_YUV].addr_vir.addr_y;
+	cap_mem->thum_yuv.addr_phy.addr_u = img_frame[THUM_YUV].addr_phy.addr_u;
+	cap_mem->thum_yuv.addr_vir.addr_u = img_frame[THUM_YUV].addr_vir.addr_u;
+	cap_mem->thum_yuv.size.width      = thum_size->width;320
+	cap_mem->thum_yuv.size.height     = thum_size->height;240
+
+	cap_mem->thum_jpeg.buf_size = img_frame[THUM_JPEG].buf_size;
+	cap_mem->thum_jpeg.addr_phy.addr_y = img_frame[THUM_JPEG].addr_phy.addr_y;
+	cap_mem->thum_jpeg.addr_vir.addr_y = img_frame[THUM_JPEG].addr_vir.addr_y;
+
+	cap_mem->scale_tmp.buf_size = img_frame[SCALER_TMP].buf_size;
+	cap_mem->scale_tmp.addr_phy.addr_y = img_frame[SCALER_TMP].addr_phy.addr_y;
+	cap_mem->scale_tmp.addr_vir.addr_y = img_frame[SCALER_TMP].addr_vir.addr_y;
+
+cap_mem->cap_raw.size.width      = sn_size->width;3280
+cap_mem->cap_raw.size.height     = sn_size->height;2464
+cap_mem->cap_raw.fmt             = IMG_DATA_TYPE_RAW;
+cap_mem->cap_raw.addr_phy.addr_y = 0
+cap_mem->cap_raw.addr_phy.addr_u = 0
+cap_mem->cap_raw.addr_vir.addr_y,= 0
+cap_mem->cap_raw.addr_vir.addr_u,= 0
+cap_mem->cap_raw.buf_size= 0
+
+struct buffer_cfg        buffer_info;        //给preview v4l2 QBUF用
+buffer->channel_id = CHN_1;
+	buffer->base_id    = CAMERA_PREV_ID_BASE=0x1000;
+	buffer->count      = 8;
+	buffer->length     = frame_size=w*h*3/2;
+	for (i = 0; i < 8; i++) {
+		g_cxt->prev_frm[i].addr_vir.addr_y = (uint32_t)g_cxt->prev_virt_addr + (uint32_t)(i * frame_size);
+		g_cxt->prev_frm[i].addr_vir.addr_u = g_cxt->prev_frm[i].addr_vir.addr_y + buffer_size;
+
+		g_cxt->prev_frm[i].addr_phy.addr_y = (uint32_t)g_cxt->prev_phys_addr + (uint32_t)(i * frame_size);
+		g_cxt->prev_frm[i].addr_phy.addr_u = g_cxt->prev_frm[i].addr_phy.addr_y + buffer_size;
+		g_cxt->prev_frm[i].fmt             = IMG_DATA_TYPE_YUV420;
+		g_cxt->prev_frm[i].size.width      = g_cxt->preview_size.width = 800;
+		g_cxt->prev_frm[i].size.height     = g_cxt->preview_size.height = 480;
+		buffer->addr[i].addr_y = g_cxt->prev_frm[i].addr_phy.addr_y;
+		buffer->addr[i].addr_u = g_cxt->prev_frm[i].addr_phy.addr_u;
+	}
+
+struct buffer_cfg        buffer_info;        //给capture v4l2 QBUF用
+	buffer->channel_id = CHN_2;
+	buffer->base_id    = CAMERA_CAP0_ID_BASE;
+	buffer->count      = 4;
+	buffer_size        = 3264 * 1840;
+	frame_size         = buffer_size * 3 / 2;
+
+		mem_size   = g_cxt->cap_mem[i].cap_yuv.buf_size;
+		y_addr     = g_cxt->cap_mem[i].cap_yuv.addr_phy.addr_y;
+		u_addr     = g_cxt->cap_mem[i].cap_yuv.addr_phy.addr_u;
+		y_addr_vir = g_cxt->cap_mem[i].cap_yuv.addr_vir.addr_y;
+		u_addr_vir = g_cxt->cap_mem[i].cap_yuv.addr_vir.addr_u;
+		g_cxt->cap_frm[i].addr_phy.addr_y = y_addr;
+		g_cxt->cap_frm[i].addr_phy.addr_u = u_addr;
+
+		g_cxt->cap_frm[i].addr_vir.addr_y = (uint32_t)g_cxt->cap_virt_addr + (uint32_t)(i * frame_size);
+		g_cxt->cap_frm[i].addr_vir.addr_u = (uint32_t)g_cxt->cap_virt_addr + (uint32_t)(i * frame_size) + buffer_size;
+
+		buffer->addr[i].addr_y = g_cxt->cap_frm[i].addr_phy.addr_y;
+		buffer->addr[i].addr_u = g_cxt->cap_frm[i].addr_phy.addr_u;
+buffer->length     = frame_size;
+chn_2_status = CHN_BUSY;
+g_cxt->v4l2_cxt.chn_status[CHN_2] = CHN_BUSY;
+
+2.img_frm_cap  capture用
+need_isp = 1
+dst_img_fmt = g_cxt->cap_original_fmt=IMG_DATA_TYPE_YUV420
+notice_slice_height  = 2464;
+src_img_rect.start_x = 0;
+src_img_rect.start_y = 304;
+src_img_rect.width   = 3280;
+src_img_rect.height  = 1848;
+dst_img_size.width   = src_img_rect.width;
+dst_img_size.height  = src_img_rect.height;
+
+2.isp
+static int32_t _isp_get_video_param(struct isp_video_start* param_ptr, struct isp_cfg_param* rtn_param_ptr)
+{
+	int32_t rtn=ISP_SUCCESS;
+	struct isp_context* isp_context_ptr=ispGetContext();
+	SENSOR_EXP_INFO_T* sensor_info_ptr=(SENSOR_EXP_INFO_T*)isp_context_ptr->cfg.sensor_info_ptr;
+
+	rtn_param_ptr->data.work_mode=ISP_CONTINUE_MODE;
+	rtn_param_ptr->data.input=ISP_CAP_MODE;
+	rtn_param_ptr->data.input_format=ISP_DATA_NORMAL_RAW10
+	rtn_param_ptr->data.format_pattern=sensor_info_ptr->image_pattern;
+	rtn_param_ptr->data.input_size.w=3280
+	rtn_param_ptr->data.input_size.h=2464
+	rtn_param_ptr->data.output_format=ISP_DATA_UYVY;
+	rtn_param_ptr->data.output=ISP_DCAM_MODE;
+	rtn_param_ptr->data.slice_height=param_ptr->size.h=2464;
+	rtn_param_ptr->callback=isp_context_ptr->cfg.callback;
+	rtn_param_ptr->sensor_info_ptr=isp_context_ptr->cfg.sensor_info_ptr;
+
+	return rtn;
+}
+static int32_t _ispSetInterfaceParam(struct isp_cfg_param* param_ptr)
+{
+	int32_t rtn=ISP_SUCCESS;
+	struct isp_context* isp_context_ptr=ispGetContext();
+	uint32_t i=0x00;
+	uint16_t max_slice_width=0x00;
+	uint16_t max_slice_height=0x00;
+
+	memcpy((void*)&isp_context_ptr->cfg, (void*)param_ptr, sizeof(struct isp_cfg_param));
+	rtn=_isp_clear_slice_info();
+
+	isp_context_ptr->src.w=param_ptr->data.input_size.w;
+	isp_context_ptr->src.h=param_ptr->data.input_size.h;
+
+	rtn=ispGetContinueSize(&max_slice_width, &max_slice_height);
+
+	if(param_ptr->data.input_size.w<max_slice_width) {
+		isp_context_ptr->slice.max_size.w=param_ptr->data.input_size.w;
+	} else {
+		isp_context_ptr->slice.max_size.w=max_slice_width;
+	}
+
+	if(param_ptr->data.slice_height<max_slice_height) {
+		isp_context_ptr->slice.max_size.h=param_ptr->data.slice_height;
+	} else {
+		isp_context_ptr->slice.max_size.h=max_slice_height;
+	}
+
+	isp_context_ptr->slice.all_line=param_ptr->data.input_size.h;
+	isp_context_ptr->slice.complete_line=ISP_ZERO;
+	
+	ISP_LOG("ISP_RAW: _ispSetInterfaceParam input_size-w=%d, h=%d\n", param_ptr->data.input_size.w, param_ptr->data.input_size.h);
+	ISP_LOG("ISP_RAW: _ispSetInterfaceParam max_size-w=%d, h=%d\n", isp_context_ptr->slice.max_size.w, isp_context_ptr->slice.max_size.h);
+	
+	_ispGetSliceWidthNum(&isp_context_ptr->src, &isp_context_ptr->slice);
+	_ispGetSliceHeightNum(&isp_context_ptr->src, &isp_context_ptr->slice);
+	
+	ISP_LOG("ISP_RAW: _ispSetInterfaceParam src-w=%d, h=%d\n", isp_context_ptr->src.w, isp_context_ptr->src.h);
+	ISP_LOG("ISP_RAW: _ispSetInterfaceParam slice-w=%d, h=%d\n", isp_context_ptr->slice.all_slice_num.w, isp_context_ptr->slice.all_slice_num.h);
+
+	// common
+	isp_context_ptr->com.in_mode=param_ptr->data.input;
+	isp_context_ptr->com.fetch_bit_reorder=ISP_LSB;
+	if(ISP_EMC_MODE == param_ptr->data.input) {
+		isp_context_ptr->com.fetch_endian=ISP_ENDIAN_LITTLE;
+	} else {
+		isp_context_ptr->com.fetch_endian=ISP_ENDIAN_BIG;
+	}
+
+	isp_context_ptr->com.bpc_endian=ISP_ENDIAN_BIG;
+
+	isp_context_ptr->com.out_mode=param_ptr->data.output;
+	if(ISP_EMC_MODE == param_ptr->data.output) {
+		isp_context_ptr->com.store_endian=ISP_ENDIAN_LITTLE;
+	} else {
+		isp_context_ptr->com.store_endian=ISP_ENDIAN_BIG;
+	}
+
+	isp_context_ptr->com.store_yuv_format=_ispStoreFormat(param_ptr->data.output_format);
+	isp_context_ptr->com.fetch_color_format=_ispFetchFormat(param_ptr->data.input_format);
+	isp_context_ptr->com.bayer_pattern=param_ptr->data.format_pattern;
+
+	// featch
+	isp_context_ptr->featch.bypass=ISP_ZERO;
+	isp_context_ptr->featch.sub_stract=ISP_ZERO;
+	isp_context_ptr->featch.addr.chn0=param_ptr->data.input_addr.chn0;
+	isp_context_ptr->featch.addr.chn1=param_ptr->data.input_addr.chn1;
+	isp_context_ptr->featch.addr.chn2=param_ptr->data.input_addr.chn2;
+	_ispGetFetchPitch(&(isp_context_ptr->featch.pitch), param_ptr->data.input_size.w, param_ptr->data.input_format);
+	// feeder
+	isp_context_ptr->feeder.data_type=_ispFeederDataType(param_ptr->data.input_format);
+	// store
+	isp_context_ptr->store.bypass=ISP_ZERO;
+	isp_context_ptr->store.sub_stract=ISP_ONE;
+	isp_context_ptr->store.addr.chn0=param_ptr->data.output_addr.chn0;
+	isp_context_ptr->store.addr.chn1=param_ptr->data.output_addr.chn1;
+	isp_context_ptr->store.addr.chn2=param_ptr->data.output_addr.chn2;
+	_ispGetStorePitch(&(isp_context_ptr->store.pitch), param_ptr->data.input_size.w, param_ptr->data.output_format);
+
+	return rtn;
+}
+static int32_t _ispStart(void)
+{
+	int32_t rtn=ISP_SUCCESS;
+	struct isp_context* isp_context_ptr=ispGetContext();
+	struct isp_fetch_param fetch_param;
+	struct isp_store_param store_param;
+
+	rtn=_ispGetSliceEdgeInfo(&isp_context_ptr->slice);
+
+	rtn=_ispGetSliceSize(isp_context_ptr->com.proc_type, &isp_context_ptr->src, &isp_context_ptr->slice);
+	
+	readSliceInfo(&isp_context_ptr->slice);
+	
+	rtn=_ispAddSliceBorder(ISP_WAVE, isp_context_ptr->com.proc_type, &isp_context_ptr->slice);
+	rtn=_ispAddSliceBorder(ISP_CFA, isp_context_ptr->com.proc_type, &isp_context_ptr->slice);
+	rtn=_ispAddSliceBorder(ISP_PREF, isp_context_ptr->com.proc_type, &isp_context_ptr->slice);
+	rtn=_ispAddSliceBorder(ISP_BRIGHT, isp_context_ptr->com.proc_type, &isp_context_ptr->slice);
+	rtn=_ispAddSliceBorder(ISP_CSS, isp_context_ptr->com.proc_type, &isp_context_ptr->slice);
+	rtn=_ispAddSliceBorder(ISP_GLB_GAIN, isp_context_ptr->com.proc_type, &isp_context_ptr->slice);
+	rtn=_ispSetLncParam(&isp_context_ptr->lnc, isp_context_ptr);
+
+	rtn=_ispSetSlice(&isp_context_ptr->slice);
+	rtn=_ispLncParamSet(&isp_context_ptr->lnc);
+
+	rtn=_ispGetFetchAddr(&fetch_param);
+	rtn=_ispGetStoreAddr(&store_param);
+	rtn=_ispCfgFeatchData(&fetch_param);
+	rtn=_ispCfgStoreData(&store_param);
+	rtn=_ispCfgFeeder(&isp_context_ptr->feeder);
+	rtn=_ispCfgComData(&isp_context_ptr->com);
+
+	rtn=ispShadow(ISP_ONE);
+
+	rtn=_ispLncParamLoad(&isp_context_ptr->lnc);
+	rtn=_ispLncParamValid();
+	//readReg();
+	if(ISP_CAP_MODE!=isp_context_ptr->com.in_mode) {
+		rtn=isp_Start(ISP_ONE);
+	}
+
+	return rtn;
+}
+
+
+isp_context:
+slice.pos_info=ISP_SLICE_ALL;
+
+12-12 05:02:51.320: E/(2585): L 284, camera_arrange_capture_buf: Major frame, 0x94968000 0xb1607000, 0x1400000
+12-12 05:02:51.320: V/OMXCodec(2585): [OMX.google.vorbis.decoder] FILL_BUFFER_DONE(buffer: 0xb7ca1808, size: 4096, flags: 0x00000000, timestamp: 256870 us (0.26 secs))
+12-12 05:02:51.320: E/(2585): L 289, camera_arrange_capture_buf: Minor frame, 0x95d68000 0xad007000, 0x3200000
+12-12 05:02:51.320: E/(2585): L 295, camera_arrange_capture_buf: channel_size, 0x7b5200, image_cnt 4, rot 0, orig_fmt 2
+12-12 05:02:51.320: E/(2585): L 420, camera_arrange_capture_buf: cap_raw, phy 0x0 0x0, vir 0x0 0x0, size 0x0
+12-12 05:02:51.320: E/(2585): L 433, camera_arrange_capture_buf: target_yuv, phy 0x94968000 0x9511d200, vir 0xb1607000 0xb1dbc200, size 0xb8fb00
+12-12 05:02:51.320: E/(2585): L 440, camera_arrange_capture_buf: cap_yuv, phy 0x94afb980 0x951e6ec0, vir 0xb179a980 0xb1e85ec0, size 0xb8fb00
+12-12 05:02:51.320: V/OMXCodec(2585): [OMX.google.vorbis.decoder] Calling fillBuffer on buffer 0xb7ca1808
+12-12 05:02:51.320: E/(2585): L 445, camera_arrange_capture_buf: target_jpeg, phy 0x954f7b00, vir 0xb2196b00, size 0x7c5200
+12-12 05:02:51.320: E/(2585): L 448, camera_arrange_capture_buf: Now to alloc misc buffers
+12-12 05:02:51.320: E/(2585): L 467, camera_arrange_capture_buf: No more memory reseved in Major buffer, to alloc misc buffers from Minor buffer
+12-12 05:02:51.320: E/(2585): L 494, camera_arrange_capture_buf: major_end, major_res, minor_end, minor_res: 0x1383b00 0x7c500 0x19a000 0x3066000
+12-12 05:02:51.320: E/(2585): L 550, camera_arrange_capture_buf: thum_yuv, phy 0x95cbcd00 0x95ccf900, vir 0xb295bd00 0xb296e900, size 0x1c200
+12-12 05:02:51.320: E/(2585): L 558, camera_arrange_capture_buf: thum_jpeg, phy 0x95cd8f00, vir 0xb2977f00, size 0x12c00
+12-12 05:02:51.320: E/(2585): L 574, camera_arrange_capture_buf: scale_tmp, phy 0x95d68000, vir 0xad007000, size 0x19a000
+12-12 05:02:51.320: E/(2585): L 758, camera_arrange_capture_buf: Image ID 1
+12-12 05:02:51.320: E/(2585): L 764, camera_arrange_capture_buf: cap_raw, phy 0x0 0x0, vir 0x0 0x0, size 0x0
+12-12 05:02:51.320: E/(2585): L 771, camera_arrange_capture_buf: target_yuv, phy 0x95f02000 0x966b7200, vir 0xad1a1000 0xad956200, size 0xb8fb00
+12-12 05:02:51.320: E/(2585): L 778, camera_arrange_capture_buf: cap_yuv, phy 0x96095980 0x96780ec0, vir 0xad334980 0xada1fec0, size 0xb8fb00
+12-12 05:02:51.320: V/OMXCodec(2585): [OMX.google.vorbis.decoder] EMPTY_BUFFER_DONE(buffer: 0xb7ca1f28)
+12-12 05:02:51.320: E/(2585): L 783, camera_arrange_capture_buf: target_jpeg, phy 0x954f7b00, vir 0xb2196b00, size 0x7c5200
+12-12 05:02:51.320: E/(2585): L 790, camera_arrange_capture_buf: thum_yuv, phy 0x95cbcd00 0x95ccf900, vir 0xb295bd00 0xb296e900, size 0x1c200
+12-12 05:02:51.320: E/(2585): L 795, camera_arrange_capture_buf: thum_jpeg, phy 0x95cd8f00, vir 0xb2977f00, size 0x12c00
+12-12 05:02:51.320: E/(2585): L 799, camera_arrange_capture_buf: scale_tmp, phy 0x95d68000, vir 0xad007000, size 0x19a000
+12-12 05:02:51.320: E/(2585): L 758, camera_arrange_capture_buf: Image ID 2
+12-12 05:02:51.320: E/(2585): L 764, camera_arrange_capture_buf: cap_raw, phy 0x0 0x0, vir 0x0 0x0, size 0x0
+12-12 05:02:51.320: E/(2585): L 771, camera_arrange_capture_buf: target_yuv, phy 0x96a91b00 0x97246d00, vir 0xadd30b00 0xae4e5d00, size 0xb8fb00
+12-12 05:02:51.320: V/OMXCodec(2585): [OMX.google.vorbis.decoder] Calling emptyBuffer on buffer 0xb7ca1f28 (length 213), timestamp 400000 us (0.40 secs)
+12-12 05:02:51.320: E/(2585): L 778, camera_arrange_capture_buf: cap_yuv, phy 0x96c25480 0x973109c0, vir 0xadec4480 0xae5af9c0, size 0xb8fb00
+12-12 05:02:51.320: E/(2585): L 783, camera_arrange_capture_buf: target_jpeg, phy 0x954f7b00, vir 0xb2196b00, size 0x7c5200
+12-12 05:02:51.320: E/(2585): L 790, camera_arrange_capture_buf: thum_yuv, phy 0x95cbcd00 0x95ccf900, vir 0xb295bd00 0xb296e900, size 0x1c200
+12-12 05:02:51.320: E/(2585): L 795, camera_arrange_capture_buf: thum_jpeg, phy 0x95cd8f00, vir 0xb2977f00, size 0x12c00
+12-12 05:02:51.320: E/(2585): L 799, camera_arrange_capture_buf: scale_tmp, phy 0x95d68000, vir 0xad007000, size 0x19a000
+12-12 05:02:51.320: V/OMXCodec(2585): [OMX.google.vorbis.decoder] FILL_BUFFER_DONE(buffer: 0xb7cc73d8, size: 4096, flags: 0x00000000, timestamp: 256870 us (0.26 secs))
+12-12 05:02:51.320: E/(2585): L 758, camera_arrange_capture_buf: Image ID 3
+12-12 05:02:51.320: E/(2585): L 764, camera_arrange_capture_buf: cap_raw, phy 0x0 0x0, vir 0x0 0x0, size 0x0
+12-12 05:02:51.320: E/(2585): L 771, camera_arrange_capture_buf: target_yuv, phy 0x97621600 0x97dd6800, vir 0xae8c0600 0xaf075800, size 0xb8fb00
+12-12 05:02:51.320: E/(2585): L 778, camera_arrange_capture_buf: cap_yuv, phy 0x977b4f80 0x97ea04c0, vir 0xaea53f80 0xaf13f4c0, size 0xb8fb00
+12-12 05:02:51.320: E/(2585): L 783, camera_arrange_capture_buf: target_jpeg, phy 0x954f7b00, vir 0xb2196b00, size 0x7c5200
+12-12 05:02:51.320: E/(2585): L 790, camera_arrange_capture_buf: thum_yuv, phy 0x95cbcd00 0x95ccf900, vir 0xb295bd00 0xb296e900, size 0x1c200
+12-12 05:02:51.320: E/(2585): L 795, camera_arrange_capture_buf: thum_jpeg, phy 0x95cd8f00, vir 0xb2977f00, size 0x12c00
+12-12 05:02:51.320: E/(2585): L 799, camera_arrange_capture_buf: scale_tmp, phy 0x95d68000, vir 0xad007000, size 0x19a000
+12-12 05:02:51.320: E/(2585): L 262, cmr_v4l2_cap_cfg: channel_id 2
+12-12 05:02:51.320: V/OMXCodec(2585): [OMX.google.vorbis.decoder] Calling fillBuffer on buffer 0xb7cc73d8
+
+
+CMR_LOGI("w h, %d %d, quality level %d", in_parm.size.width, in_parm.size.height,
+		in_parm.quality_level);
+	CMR_LOGI("slice height, %d, slice mode %d", in_parm.slice_height, in_parm.slice_mod);
+	CMR_LOGI("phy addr 0x%x 0x%x, vir addr 0x%x 0x%x",
+		in_parm.src_addr_phy.addr_y, in_parm.src_addr_phy.addr_u,
+		in_parm.src_addr_vir.addr_y, in_parm.src_addr_vir.addr_u);
+
+	CMR_LOGI("endian %d %d", in_parm.src_endian.y_endian, in_parm.src_endian.uv_endian);
+	CMR_LOGI("stream phy 0x%x vir 0x%x, size 0x%x",
+		in_parm.stream_buf_phy,
+		in_parm.stream_buf_vir,
+		in_parm.stream_buf_size);
+	CMR_LOGI("temp_buf phy 0x%x vir 0x%x, size 0x%x",
+		in_parm.temp_buf_phy,
+		in_parm.temp_buf_vir,
+		in_parm.temp_buf_size);
+12-12 23:54:42.090: E/(160): L 4865, camera_start_jpeg_encode: w h, 3264 1840, quality level 95
+12-12 23:54:42.090: E/(160): L 4866, camera_start_jpeg_encode: slice height, 1840, slice mode 0
+12-12 23:54:42.090: E/(160): L 4869, camera_start_jpeg_encode: phy addr 0x95f02000 0x966b7200, vir addr 0xacb39000 0xad2ee200
+12-12 23:54:42.090: E/(160): L 4871, camera_start_jpeg_encode: endian 1 1
+12-12 23:54:42.090: E/(160): L 4875, camera_start_jpeg_encode: stream phy 0x954f7b00 vir 0xb1b2eb00, size 0x7c5200
+12-12 23:54:42.090: E/(160): L 4879, camera_start_jpeg_encode: temp_buf phy 0x0 vir 0x0, size 0x0

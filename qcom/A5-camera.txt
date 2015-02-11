@@ -1,0 +1,182 @@
+
+
+hardware/qcom/camera
+----------mm-image-codec(libqomx_core.so)
+----------QCamera2()
+---------------HAL(camera.$(TARGET_BOARD_PLATFORM)依赖libmmcamera_interface libmmjpeg_interface.libposteffect(vendor/qcom/android/libposteffect),libcamerapp.so,libcameraface.so
+		LOCAL_SRC_FILES := \
+			QCamera2Factory.cpp \
+			QCamera2Hal.cpp \
+			QCamera2HWI.cpp \
+			QCameraMem.cpp \
+			../util/QCameraQueue.cpp \
+			../util/QCameraCmdThread.cpp \
+			QCameraStateMachine.cpp \
+			QCameraChannel.cpp \
+			QCameraStream.cpp \
+			QCameraPostProc.cpp \
+			QCamera2HWICallbacks.cpp \
+			QCameraParameters.cpp \
+			QCameraThermalAdapter.cpp \
+			HtcHalModules.cpp \
+			ExifHelper.cpp \
+			wrapper/QualcommCamera.cpp \              //入口点
+			CAFSensorListener.cpp \
+			DISSensorListener.cpp)
+------------------awb_calibration(libawb_calibration.so)
+------------------awb_camera(awb_camera.exe)
+------------------dual_camera(dual_camera.exe)
+------------------flash_camera(flash_camera.exe)
+------------------lsc_camera(lsc_camera.exe)
+---------------stack
+-------------------mm-camera-interface(libmmcamera_interface.so)
+-------------------mm-jpeg-interface(libmmjpeg_interface.so依赖libqomx_core openmax)
+-------------------mm-camera-test(mm-qcamera-app,libmm-qcamera.so)
+
+vendor
+----htc
+------camera_3a(htc的3a算法分别编译成libcamera_awb libcamera_aec libcamera_af,会被libmmcamera2_stats_algorithm引用)
+------libcamerapp(libcamerapp.so)
+------libcameraface(libcameraface.so)
+----qcom
+------android
+-----------libposteffect(libposteffect.so GPU库)
+------proprietary
+-----------mm-still(jpeg驱动,libmmipl,libjpegehw,libjpegdhw,libmmjpeg)
+----------------codec_v1(libmmqjpeg_codec.so)
+-----------mm-camera-core(camera相关算法3a/is/afd/asd,全编译成libmmcamera2_stats_algorithm.so依赖libcamera_awb libcamera_aec libcamera_af libawb_calibration)
+-----------mm-camera(只编译mm-camera2/tuning)
+----------------tuning(只编译ov13850/s5k5e_onelane,libtuning_aec_ov13850_zsl)
+----------------mm-camera2
+----------------------media-controller
+------------------------------mct(里面所有文件编译成liboemcamera.so)
+------------------------------modules
+-----------------------------------iface(libmmcamera2_iface_modules.so依赖liboemcamera libmmcamera2_isp_modules)
+-----------------------------------imglib()
+----------------------------------------components(lib/faceproc prebuilt编译成libmmcamera_faceproc.so)
+----------------------------------------下面文件编译成libmmcamera_imglib.so
+                                        LOCAL_SRC_FILES := utils/img_queue.c
+					LOCAL_SRC_FILES += utils/img_buffer.c
+					LOCAL_SRC_FILES += components/common/img_common.c
+					LOCAL_SRC_FILES += components/common/img_comp.c
+					LOCAL_SRC_FILES += components/common/img_comp_factory.c
+					LOCAL_SRC_FILES += components/wd/wd_comp.c
+					LOCAL_SRC_FILES += components/hdr/hdr_comp.c
+					LOCAL_SRC_FILES += components/faceproc/faceproc_comp_eng.c
+					LOCAL_SRC_FILES += components/faceproc/faceproc_comp.c
+					LOCAL_SRC_FILES += components/frameproc/frameproc_comp.c
+					LOCAL_SRC_FILES += components/cac_v2/cac_v2_comp.c
+----------------------------------------modules(所有文件编译成libmmcamera2_imglib_modules依赖liboemcamera libmmcamera_imglib libcamerapp)
+------------------------------------isp(所有文件编译成libmmcamera2_isp_modules.so依赖liboemcamera)
+------------------------------------pproc-new(pproc_module.c/pproc_port.c编译成libmmcamera2_pproc_modules依赖libmmcamera2_cpp_module \
+                                    liboemcamera libdl libmmcamera2_c2d_module libmmcamera2_imglib_modules \
+                                    libmmcamera2_wnr_module libmmcamera2_vpe_module)
+--------------------------------------------c2d(libmmcamera2_c2d_module.so依赖liboemcamera)
+--------------------------------------------cpp(libmmcamera2_cpp_module.so依赖liboemcamera)
+-----------------------------------------------firmware(prebuilt cpp_firmware_v1_1_1.fw)
+--------------------------------------------vpe(libmmcamera2_vpe_module.so)
+--------------------------------------------wnr(libmmcamera2_wnr_module.so)
+------------------------------------sensors(module/sensors/chromatix/module/actuators/eeprom/led_flash/strobe_flash/csiphy/csid下的代码编译成libmmcamera2_sensor_modules依赖liboemcamera libawb_calibration)
+-----------------------------------------sensor-libs(libmmcamera_ov13850寄存器列表相关信息，module_sensor_init_session时加载)
+-----------------------------------------eeprom_libs(libmmcamera_truly_cm7700_eeprom)
+-----------------------------------------chromatix/0301/libchromatix(libchromatix_ov13850_)
+------------------------------------stats(所有文件/文件夹编译成libmmcamera2_stats_modules.so依赖liboemcamera libmmcamera2_stats_algorithm)
+----------------------server-imaging(mm-qcamera-daemon)
+----------------------server-tuning(libmmcamera_tuning.soLOCAL_SRC_FILES:= tuning/eztune.c \tuning/eztune_items_0301.c \tuning/eztune_process.c \preview/eztune_preview.c)
+
+
+
+1.startpreview流程
+创建的thread:
+QCameraStateMachine:
+new QCameraStateMachine时smEvtProcRoutine，等待条件cmd_sem，作为TYPE_API，TYPE_Evt等待队列
+mm_camera_obj_t:
+mm_camera_cmd_thread_t evt_thread open时启动,等待cmd_thread->cmd_sem，然后从cmd_thread->cmd_queue取数据执行
+mm_camera_poll_thread_t evt_poll_thread open时启动,用来poll /dev/video1的event
+mct_pipe.c:
+mct_pipeline_modules_start每个module创建个thread,调module->start_session
+mct_control:
+mct_controller_thread_run(80)处理server cmd和bus msg
+QCameraPostProcessor::init：
+m_dataProcTh.launch(dataProcessRoutine, this);
+m_saveProcTh.launch(dataSaveRoutine, this);
+QCameraCbNotifier::setCallbacks：
+mProcTh.launch(cbNotifyRoutine, this);
+mm_channel:
+mm_camera_poll_thread_t poll_thread[1]             //mm_channel init时启动，用来poll /dev/video1的data
+mm_channel_start:
+        /* launch cb thread for dispatching super buf through cb */
+        mm_camera_cmd_thread_launch(&my_obj->cb_thread,
+                                    mm_channel_dispatch_super_buf,
+                                    (void*)my_obj);
+
+        /* launch cmd thread for super buf dataCB */
+        mm_camera_cmd_thread_launch(&my_obj->cmd_thread,
+                                    mm_channel_process_stream_buf,
+                                    (void*)my_obj);
+QCameraStream:
+QCameraCmdThread mProcTh; // thread for dataCB QCameraStream::start时启动，wait条件QCameraScream->mProcTh->cmd_sem.每个stream start一次
+mm_stream:
+mm_camera_cmd_thread_launch // streamon前启动,当有数据是mm_stream_dispatch_app_data回调
+isp_hw_open:
+/* fork the hw thread to poll on vfe subdev and pipe */
+    rc = isp_thread_start(&isp_hw->thread_poll, isp_hw, isp_hw->fd);
+ /* fork the hw thread for stream on/off */
+    rc = isp_sem_thread_start(&isp_hw->thread_stream, isp_hw);
+ /* fork the hw thread for set/get config and hw update */
+    rc = isp_thread_start(&isp_hw->thread_hw, isp_hw, 0);
+
+1.msm_post_event
+会在v4l2_event_queue里放data,通知server的poll(/dev/video0),然后一直wait cmd_ack->wait,直到service处理完后在cmd_ack->command_q.list放ack, 然后取出cmd,cmd = msm_dequeue  ...server会VIDIOC_DQEVENT
+y default don't return command ACK to HAL,
+   * return ACK only for two cases:
+   * 1. NEW SESSION
+   * 2. Failure
+2.mct_list_traverse(pipeline->modules, mct_pipeline_get_module_num,pipeline)，，对pipeline->modules里的每个元素调mct_pipeline_get_module_num，
+参数是（pipeline->modules->data, pipeline）
+3. module_sensor_start_session：
+When called first time, this function  ，， create a sensor thread  sensor_thread_create
+ *  1) opens all sub modules to open subdev node
+ *  2) loads sensor library libmmcamera_ov13850
+ *  3) calls init on sensor, csiphy and csid.
+module_isp_start_session:
+启动tintless_session，zoom_session，zoom_val，启动isp_thread_async_task_start  thread
+stats_module_start_session:调子module startsession
+q3a_module_start_session
+aec_module_start_session
+Create stats port,Create subports,Do start session for submodules
+cpp_module_start_session:
+open subdev,  创建cpp_thread_func
+4.  /* 1. Server communicates with Media Controller through signal(servSignal);
+   * 2. Media Controller communicate with Server through Pipe(servFd) */
+ /* Received Signal from Pipeline Bus */放在mct_this->pipeline->bus->bus_queue
+5.一个channel最多有MAX_STREAM_NUM_IN_BUNDLE=4个stream
+每个stream都调一次/* allocate buf */，/* reg buf *//* start stream */
+6.每个isp_stream_t对于一个img_channel和meta_channel
+
+{ 5384, 3752, 192, 0, 5000, 3752, 2500, 1876, 0, 0, 2500, 1876, 0, 0, 2496, 1876}, // video
+    .normal_video = {
+        .pclk = 180000000,
+        .linelength = 0x0c58,  //3160
+        .framelength = 0x076c,  //1900
+        .startx = 0,
+        .starty = 0,
+        .grabwindow_width = 0x0A84,  //2692
+        .grabwindow_height = 0x0754,  //1876
+        .mipi_data_lp2hs_settle_dc = 100,//unit , ns
+        .max_framerate = 300,
+    },
+
+    .normal_video = {  // 4k2k 30fps*/
+        .pclk = 292800000,
+        .linelength = 0x1170,  //4464
+        .framelength = 0x088A,  //2186
+        .startx = 0,
+        .starty = 0,
+        .grabwindow_width = 0x0F00,  //3840
+        .grabwindow_height = 0x0870,  //2160
+        .mipi_data_lp2hs_settle_dc = 100,//unit , ns
+        .max_framerate = 300,
+    },
+
+[T4KA7_camera_sensor] [control]

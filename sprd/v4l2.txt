@@ -1,0 +1,296 @@
+1.lcd涉及文件，lcd背光通过KEYBOARD/GPB0,输出1高电平enable，lcdpower使能lcd...其他寄存器就是设置clk这些。 
+需要做的是：构造fb_info framebuffer_alloc,并初始化，然后调register_framebuffer(fbinfo). 然后是lcd寄存器的一些配置。
+lcd控制器是HCLK，通过clk_get(NULL,"lcd");,clk_get_state
+platform_driver和platform_device是通过.name	= "s3c2410-lcd",进行匹配
+Fbmem.c (drivers\video):register_chrdev, file_operations fb_fops,register_framebuffer实现
+Fb.h (arch\arm\mach-s3c2410\include\mach):定义s3c2410fb_mach_info,struct s3c2410fb_display
+
+S3c2410fb.c (drivers\video)： struct platform_driver s3c2410fb_driver， static struct fb_ops s3c2410fb_ops
+platform_driver_register(&s3c2410fb_driver)-》int __init s3c24xxfb_probe-》register_framebuffer-》device_add(class
+									-》根据 platform_device传过来resouce配置lcd
+
+S3c2410fb.h (drivers\video):struct s3c2410fb_info
+
+Devs.c (arch\arm\plat-s3c24xx):struct platform_device s3c_device_lcd,struct resource s3c_lcd_resource[]
+Devs.h (include\asm-arm\plat-s3c24xx):
+Mach-mini2440.c (arch\arm\mach-s3c2440)	: MACHINE_START(S3C2440,,smdk2440_machine_init
+s3c24xx_fb_set_platdata,platform_add_devices
+初始化struct s3c2410fb_mach_info mini2440_fb_info，s3c2410fb_display，lcd寄存器一些参数设置
+2.touchscreen.用的输入子系统
+需要做的是: 构造dev = input_allocate_device();,然后设置支持的事件，配置寄存器，申请中断,调input_register_device
+soc的adc控制器有8个接口a0-a3,YP,YM,触摸屏有4个输入接口TSYP,TSXP,TSYM,TSYP与soc的adc控制YP，YM相连,通过设置ADCTSC寄存器可以设置这4个接口处于不同输入状态 ..a0-a3可能与TSYP这个4个接口同时有输入，a0-a3是其他的adc转换应用。
+S3c2410_ts.c (drivers\input\touchscreen
+input.c/udev.c
+3.中断异常
+通过系统调用进入内核后,还是在进程上下文，可以休眠被调度。
+request_irq可以会休眠,不能在中断上下文调
+工作队列在进程上下文运行，可以休眠，，如果需要休眠先工作队列,不然tasklet更高效。
+自旋锁spin_lock,会一直旋转运行,直到获得锁。
+在中断处理程序里spin_lock前要先禁止中断，用spin_lock_irqsave.
+信号量可能会会休眠,所有只能在进程上下文。如果不是长时间等，别用信号亮，因为休眠,调度会花更久。
+下半部可以抢占进程上下文代码，共享数据需要枷锁还要禁止下半部
+中断处理程序可以抢占下半部，共享数据需要加锁并禁止中断
+抢占发生在同一处理器上，同类tasklet不可能同时运行，，不同类tasklet共享数据需要加锁，不需要禁止下半部，因为在同一处理器上tasklet和软中断都不会抢占
+同类软中断可能在不同处理器上运行，需加锁。
+中断处理程序可以抢占内核代码,其他中断处理程序,自旋锁用在中断处理程序中要禁止本地中断。
+下半部需要到推迟到进程上下文执行可以休眠,可以被调度，选工作队列，否则选tasklet.
+
+4.IIC只有2条线，SDA/SCL，当SCL/SDA都为高电平时,拉低SDA发送起始信号,  SCL为高，拉高SDA做为结束信号。
+scl为低是可以传送数据,为高时要保持稳定，scl为低时可以传送数据，传送完后SCL会被拉高,在scl上升沿开始传数据。
+发送完数据,读完数据,发送完stop信号，都要delay一会，等设备反应。
+传送数据按芯片手册的timing走,先传地址,在传数据,没传一个8位数据,从机要发送一个ACK应答。
+我们不用管怎么拉高拉低SCL/SDA,只需设置寄存器按timing传数据,可以设置要不要发ACK。
+收到中断是I2c停止，
+在write时，当rIICDS = _iicData[_iicPt++]时可以假设数据还没发送出去,启动i2c,发送完会触发中断,在中断里我们继续write或结束,从机有没发ACK可以读寄存器。
+在read时，当_iicData[_iicPt++] = rIICDS时可以假设数据还没读到,启动i2c,读完数据后会触发中断，在中断里我们继续read或结束,read时一般读最后一个数据后不发ack, 要在读最后一个数据之前设置con不发ack
+i2c分为i2c控制器驱动和i2c设备驱动。
+i2c控制器驱动(i2c_adapter)是platform_bus驱动，在probe里调i2c_add_adapter添加一个adapter,在adapter提够aogo用于i2c数据传输
+i2c设备驱动是i2c_bus驱动，分i2c_client/i2c_driver,调用i2c_add_driver添加driver，匹配上i2c_client会调probe..
+一个i2c_adapter会跟很多client关联,每个client会指向它的adapter，并有相应的driver关联， i2c_bus上面会关联很多driver/client. 没添加一个driver/client，会扫描所有driver/client与之关联。
+client的添加方法参考instantiating-device.
+user访问i2c设备时,i2c_driver通过i2c_smbus_write_byte_data/i2c_transfer与i2c_adapter的algo通信。
+MIPI-CSI:
+应用层的数据raw10/rgb565/yuv422,传到协议层根据这个数据格式把pix拆成byte,  用LLP协议进行打包加上PH/PF等信息，
+然后通过Lane Management分成多个package,发到不太的DPHY层的Lan中传输。接受过程相反，合并lan/拆包/组成raw10数据格式。
+相当与并行的接口经过csi又成并行的数据。
+
+5.tty/uart
+基础框架是uart_driver,uart_port,uart_add_one_port,uart_register_driver。2440可能在这基础上又做了封装
+需要做的在Samsung.c,S3c2440.c是：构造uart_driver,调用uart_register_driver。
+构造uart_port并初始化，设置uart_ops里面的操作,然后调uart_add_one_port与uart_driver关联
+uart_driver有个tty_driver*，tty_driver包装cdev有个tty_fops(file_operations)和tty_operations*,
+tty_driver->flags		= TTY_DRIVER_REAL_RAW | TTY_DRIVER_DYNAMIC_DEV;
+list_add(&driver->tty_drivers, &tty_drivers);
+ourport->info	= info;s3c24xx_uart_port有成员s3c24xx_uart_info*和uart_port
+uart_port有个uart_ops,uart_port代表一个硬件uart口里面是硬件的一些属性如,寄存器地址,irq地址,2440有3个口.
+Mach-mini2440.c (arch\arm\mach-s3c2440)设置寄存器的值，初始化platform_device *s3c24xx_uart_devs,
+cpu.c platform_add_devices(s3c24xx_uart_devs, nr_uarts);
+platform_device->platform_set_drvdata(dev, &ourport->port);Samsung.c:999
+Samsung.c (drivers\serial) 在module_init里调uart_register_driver
+uart_register_driver其实是调alloc_tty_driver，初始化tty_driver里内容,再调tty_register_driver(cdev)
+S3c2440.c (drivers\serial) 在module_init里调platform_driver_register，在probe里调uart_add_one_port,调tty_register_device(class_device)
+ probe的实现在Samsung.c里
+6.usb/v4l2
+strace -o xawtv.log xawtv //记录xawtv用了哪些系统调用
+1.输入子系统,input_dev是硬件相关的操作，input_handler是纯软件,无硬件操作。
+bus/driver/device, device是会变动的部分,driver是不变动的部分，device/driver都可能有硬件相关操作。
+inputcore是共用的代码，evdev.c/keyboarddev.c是第2共用的代码，input_dev是各个device,各个device可以选择多个input_handler，，，inputcore/inputhander里面没有的东西只能自己写了。
+
+linux有字符/块/网络设备驱动的基本框架。
+写个字符设备驱动就调用register_cdev,就会在内存中cdev数组里加一个驱动,然后用mknod建个设备节点就可以与这个设备驱动关联，，user访问设备节点就可以调动驱动访问设备。。
+设备驱动模型(bus/driver/device/class), 上面步骤就可以写驱动，但是用设备模型里的class，在register_cdev的同时调device_class_add可以在/sys/class创建一个object,在用户空间的udev监听到这个object的创建就会根据class/dev里的内容在/proc下自动创建设备节点，class下面的object也是对/dev下设备节点的一个分类。
+再用设备模型里德bus/driver/device,, 把register_cdev/ device_class_add的内容混进bus/driver/device模型中，，就可以把共同不变的内容抽象到driver里，需改变的放到device里，
+避免重复代码，，还可以遍历device进行电源管理。
+有的输入子系统没有用bus/driver/device,,,只是在register_cdev/ device_class_add的基础上又建了个框架，方便写input驱动。
+platform_device和platform_driver都是driver,都可能有硬件操作,driver一般是共性的不变的,device只是设备相关的resource,寄存器地址等，把resource传给drvier去设置操作，
+主要代码在driver.
+2.usb
+lsusb --help
+lsusb -v -d 0bb4: //获取详细信息
+usb分主机控制器驱动和设备驱动,
+当插上usb时，
+USB总线驱动程序
+1. 识别USB设备
+1.1 分配地址
+1.2 并告诉USB设备(set address)
+1.3 发出命令获取描述符
+usb_new_device(udev) ，device_add  // 把device放入usb_bus_type的dev链表, // 从usb_bus_type的driver链表里取出usb_driver，// 把usb_interface和usb_driver的id_table比较
+// 如果能匹配，调用usb_driver的probe
+usb设备(usb_device，usb_device_descriptor)可能包含多个配置（usb_host_config，usb_config_descriptor），每个配置可能包含多个接口(usb_host_interface,usb_interface_descriptor)，每个接口可能包含多个设置(altsetting,)多个端点（usb_host_endpoint,usb_endpoint_descriptor）,每个接口对应一个driver,都调probe .参考myuvc.c
+3. USB传输的对象：端点(endpoint)
+   我们说"读U盘"、"写U盘"，可以细化为：把数据写到U盘的端点1，从U盘的端点2里读出数据
+   除了端点0外，每一个端点只支持一个方向的数据传输
+   端点0用于控制传输，既能输出也能输入
+usb端点有控制,中断,批量,实时4种类型
+参考usbmouse.c
+use设备驱动包含usbinterface/usbdriver/usbbus,步骤在init里调usb_register，在probe里分配urb, usb_submit_urb
+3.v4l2--------------------------------------------------------
+v4l2基本框架是：参考vivi.c
+1．分配video_device2．设置 3．注册：video_register_device
+在注册video_register_device的过程会掉cdev_add,创建字符设备，vdev->cdev->ops = &v4l2_fops;
+参考视频监控.txt
+c.ioi部分：
+RAW RGB/YUV(格式)、VGA/QVGA(分辨率)、BT601/BT656（传输方式）
+preview流程：
+通过设置cameraif/sensor的寄存器,启动摄像头, 摄像头会把捕获的一帧数据rgb16格式放入一个缓存, 把缓存数据读出放到lcd framebuff就可以显示。
+vivi分析：
+struct vb2_ops - driver-specific callbacks
+ *
+ * @queue_setup:    called from a VIDIOC_REQBUFS handler, before
+ *            memory allocation; driver should return the required
+ *            number of buffers in num_buffers, the required number
+ *            of planes per buffer in num_planes; the size of each
+ *            plane should be set in the sizes[] array and optional
+ *            per-plane allocator specific context in alloc_ctxs[]
+ *            array
+ * @wait_prepare:    release any locks taken while calling vb2 functions;
+ *            it is called before an ioctl needs to wait for a new
+ *            buffer to arrive; required to avoid a deadlock in
+ *            blocking access type
+ * @wait_finish:    reacquire all locks released in the previous callback;
+ *            required to continue operation after sleeping while
+ *            waiting for a new buffer to arrive
+ * @buf_init:        called once after allocating a buffer (in MMAP case)
+ *            or after acquiring a new USERPTR buffer; drivers may
+ *            perform additional buffer-related initialization;
+ *            initialization failure (return != 0) will prevent
+ *            queue setup from completing successfully; optional
+ * @buf_prepare:    called every time the buffer is queued from userspace;
+ *            drivers may perform any initialization required before
+ *            each hardware operation in this callback;
+ *            if an error is returned, the buffer will not be queued
+ *            in driver; optional
+ * @buf_finish:        called before every dequeue of the buffer back to
+ *            userspace; drivers may perform any operations required
+ *            before userspace accesses the buffer; optional
+ * @buf_cleanup:    called once before the buffer is freed; drivers may
+ *            perform any additional cleanup; optional
+ * @start_streaming:    called once before entering 'streaming' state; enables
+ *            driver to receive buffers over buf_queue() callback
+ * @stop_streaming:    called when 'streaming' state must be disabled; driver
+ *            should stop any DMA transactions or wait until they
+ *            finish and give back all buffers it got from buf_queue()
+ *            callback; may use vb2_wait_for_all_buffers() function
+ * @buf_queue:        passes buffer vb to the driver; driver may start
+ *            hardware operation on this buffer; driver should give
+ *            the buffer back by calling vb2_buffer_done() function
+
+struct vb2_mem_ops - memory handling/memory allocator operations
+ * @alloc:    allocate video memory and, optionally, allocator private data,
+ *        return NULL on failure or a pointer to allocator private,
+ *        per-buffer data on success; the returned private structure
+ *        will then be passed as buf_priv argument to other ops in this
+ *        structure
+ * @put:    inform the allocator that the buffer will no longer be used;
+ *        usually will result in the allocator freeing the buffer (if
+ *        no other users of this buffer are present); the buf_priv
+ *        argument is the allocator private per-buffer structure
+ *        previously returned from the alloc callback
+ * @get_userptr: acquire userspace memory for a hardware operation; used for
+ *         USERPTR memory types; vaddr is the address passed to the
+ *         videobuf layer when queuing a video buffer of USERPTR type;
+ *         should return an allocator private per-buffer structure
+ *         associated with the buffer on success, NULL on failure;
+ *         the returned private structure will then be passed as buf_priv
+ *         argument to other ops in this structure
+ * @put_userptr: inform the allocator that a USERPTR buffer will no longer
+ *         be used
+ * @vaddr:    return a kernel virtual address to a given memory buffer
+ *        associated with the passed private structure or NULL if no
+ *        such mapping exists
+ * @cookie:    return allocator specific cookie for a given memory buffer
+ *        associated with the passed private structure or NULL if not
+ *        available
+ * @num_users:    return the current number of users of a memory buffer;
+ *        return 1 if the videobuf layer (or actually the driver using
+ *        it) is the only user
+ * @mmap:    setup a userspace mapping for a given memory buffer under
+ *        the provided virtual memory region
+ *
+ * Required ops for USERPTR types: get_userptr, put_userptr.
+ * Required ops for MMAP types: alloc, put, num_users, mmap.
+ * Required ops for read/write access types: alloc, put, num_users, vaddr
+内核中链表是在结构内，，struct内有list，说明他是链表的一部分，也可能他的这个list_head是一个链表
+v4l2_buffer:主要是USER传过来的，
+vb2_buffer:是DRIVER要处理的。会用v4l2_buffer填充这个
+struct v4l2_fh {
+	struct list_head	list
+}；
+ * enum vb2_buffer_state - current video buffer state
+ * @VB2_BUF_STATE_DEQUEUED:(初始状态和vb2_dqbuf后的状态)	buffer under userspace control
+ * @VB2_BUF_STATE_PREPARED:：（user调vb2_qbuf,入队列之前,用vb2填充v4l2_buf之后）	buffer prepared in videobuf and by the driver
+ * @VB2_BUF_STATE_QUEUED:（加入queued_list后）	buffer queued in videobuf, but not in driver
+ * @VB2_BUF_STATE_ACTIVE:(开始Streaming了，加入到vivi_dmaqueue的active list后)	buffer queued in driver and possibly used
+ *				in a hardware operation
+ * @VB2_BUF_STATE_DONE（加入done_list后state）:		buffer returned from driver to videobuf, but
+ *				not yet dequeued to userspace
+ * @VB2_BUF_STATE_ERROR:	same as above, but the operation on the buffer
+ *				has ended with an error, which will be reported
+ *				to the userspace when it is dequeued
+vidioc_try_fmt_vid_cap: 设置v4l2_pix_format的bytesperline,sizeimage,colorspace
+user调vidioc_s_fmt_vid_cap要传这些参数过来，struct v4l2_format format
+		format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		format.fmt.pix.width = width;
+		format.fmt.pix.height = height;
+		format.fmt.pix.pixelformat = pixelformat;
+		format.fmt.pix.field = V4L2_FIELD_ANY;
+		format.fmt.pix.priv = VIDEO_OUTPUT;
+vidioc_g_fmt_vid_cap：用vivdev的width,height相关参数填充v4l2_format给user.
+user调requestbuf要传这些参数：
+		struct v4l2_requestbuffers rb;
+
+		memset(&rb, 0, sizeof(struct v4l2_requestbuffers));
+		rb.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		//rb.memory = V4L2_MEMORY_MMAP;
+		rb.memory = V4L2_MEMORY_USERPTR;
+		rb.count = count;
+vidioc_reqbufs里直接调vb2_reqbufs：根据指定的num_buffers申请几个buffer放在vb2_queue的bufs数组里,实际分配了几个会传给rb.count给user.
+vidioc_querybuf直接调vb2_querybuf， userptr method不用call这个：userfor循环numbuffer要传这些参数buf.index = i;
+			buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+			buf.memory = V4L2_MEMORY_MMAP;
+根据user传过来的v4l2_buffer的index,填充这个v4l2_buffer,user根据每个buf.length/buf.m.offset做mmap
+vidioc_qbuf直接调vb2_qbuf：入队，for 3个buffer分别qbuf开始会从user传过来的v4l2_buffe获得信息，最后会用vb2_buffer填充v4l2_buffe
+userptr时填充v4l2_plane的userptr,length，mem_ptr,
+struct v4l2_buffer));
+		buf.index = i;
+		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		//buf.memory = V4L2_MEMORY_MMAP; // shawn
+		buf.memory = V4L2_MEMORY_USERPTR;// shawn  需要地，下面会判断
+		buf.m.userptr = (unsigned long)ump_id[i];         // userptr模式时在这填userptr
+		buf.length = PreviewImageSize;              // 设置长度
+vb2_dqbuf：从done队列里获得vb2_buff,用这个buffer填充v4l2_buffer给user,删除done队列,queue队列里的这个buffer.
+传		buf->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		buf->memory = V4L2_MEMORY_USERPTR;
+vidioc_streamon直接掉vb2_streaming： streaming on后vivi会没隔一定时间在vivi_fillbuff填充vb2_buffer里plane德mem_priv给user.
+每隔一段时间调vivi_thread_tick，填充buff，然后把buff从active队列删除，然后调vb2_buffer_done通知video_buff有数据了，
+vb2_buffer_done里把buff state设成VB2_BUF_STATE_DONE，加入到q->done_list里，queued_count减1，wake_up(&q->done_wq);
+vidioc_streamoff:call driver的streamoff,清除queue/done队列。
+vidioc_s_input:设置输入，如选择是用camera0还是camera1输出到lcd，付给vivi_dev的input
+--------------
+queue_setup：在request_buff里调，指定你要分几个buffer，每个buffer几个plane,每个plane大小,每个plane对于alloc_ctx（vb2_queue里的void *alloc_ctx[0]，int plane_sizes[0]），当用vb2_dma做alloc时，可以吧aloc_ctx设成vb2_dc_conf在alloc里会付给vb2_dc_buf->conf.vb2_dma_contig_put会用到conf->device.
+buf_init：在memtype=V4L2_MEMORY_MMAP时，调完alloc填充mem_priv后调,做些初始化。或者是在userptr时,qbuf时用userptr填充填充mem_priv后调。
+buf_prepare：user调vb2_qbuf,入队列之前,vb2(userptr mode时)填充mem_priv,userptr之后,DRIVER自己做些准备工作，如填充buferusered
+wait_prepare/wait_finished:在vb2_qbuf里V4L2_MEMORY_USERPTR时 释放/获得锁，避免死锁,释放的就是下面这个锁。
+	/*
+	 * Provide a mutex to v4l2 core. It will be used to protect
+	 * all fops and v4l2 ioctls.
+	 */
+	vfd->lock = &dev->mutex;
+mmap_sem then driver's lock in
+	 * mmap and driver's lock then mmap_sem in qbuf) mmap调前会先获得mmap_sem锁再获得vfd->lock,  dquf调前会先获得vfd->lock在这里再获得mmap_sem
+buffer_queue: vb2_qbuf时如果q->streaming，调这个把vivi_buffer放到vivi_dmaqueue的active list，或者vb2_streamon的时候
+把queue队列里德vivi_buffer放到vivi_dmaqueue的active list，q->queued_count会加1
+buf_finish:在dquf从done队列中获得buff后调，对获得的buff处理，
+buf_cleanup:在v4l2_file_operations的release里会调vb2_queue_release，会释放这个buf和这个buf的mem_priv占用的内存，在释放之前调buf_cleanup看driver有什么需要cleanup.
+start_streaming：在vb2_streaming里调，在把q->streaming设成1前通知driver。
+--------------
+像原来的的videobuf一样，videobuf2也实现了三种buffer类型。Vmalloc buffer这类buffer由vmalloc()分配，因此在内核空间虚拟地址上是连续的，drivers working with these buffers almost invariably end up copyingthe data once as it passes through the system；contiguous DMA buffers在物理内存上连续，通常硬件设备需要在连续物理地址空间上执行DMA操作；S/G DMA buffers在物理内存上是不连续的，如果硬件上支持scatter/gather DMA，驱动可以使用这种方式。
+驱动程序使用不同的类型buffer，需要包含以下对应的头文件：
+#include <media/videobuf2-vmalloc.h>
+#include <media/videobuf2-dma-contig.h>
+#include <media/videobuf2-dma-sg.h>
+vb2_mem_ops: mmap方式要实现alloc/put/mmap, userptr方式要实现getptr/putptr， 3个头文件里都有实现好的，也可以自己实现。
+alloc:在memtype=V4L2_MEMORY_MMAP时，在request_buff过程调,用来分配内存,可以调3个头文件里api,决定分配哪种内存。
+参数是vb2_queue里的void *alloc_ctx[0]，int plane_sizes[0]
+返回vb2_dc_buf/vb2_vmalloc_buf给vb2_buffer的void* mem_priv， mem_priv只是记录了分配的内存的地址。
+put:释放vb2_buffer的void* mem_priv内存时调用
+mmap:在user调vb_mmap时，参数是vb2_dc_buf/vb2_vmalloc_buf,, vb2_dc时映射的是dma_addr(物理地址), vb2_vmalloc时是vaddr(虚拟地址)
+put_userptr：userptr时释放内存
+get_userptr：获得userptr内存。在vb2_qbuf过程根据user传来的userptr获得userptr指的内存，填充planes.mem_priv 。。userptr可能是dma或vammoc的虚拟地址
+参数是vb2_queue里的void *alloc_ctx[0]，int plane_sizes[0]，和userptr
+返回vb2_dc_buf/vb2_vmalloc_buf给vb2_buffer的void* mem_priv
+num_users：判断mem_priv有几个引用ref，返回vb2_dc_buf->refcount，初始为1，如果大于1说明buf已经mmap,更新v4l2_buffer的flags
+vaddr：直接调vb2_vmalloc_vaddr，在fill buff时调vb2_plane_vaddr返回vb2_dc_buf->vaddr.
+cookie:返回vb2_dc_buf->dma_addr，在fill buff时通过vb2_plane_cookie调，返回dma_addr
+
+4.spi
+spi主要4个接口：sck(时钟,由主机提供),MOSI(主机输出,从机输入接口)MISO(主机输入,从机输出接口),ss0(从机使能口,当2440为主机时,配置成gpio输出) 。主机和从机各有一个8位移位寄存器,每个脉冲传1位，8个脉冲,主机和从机交换一个8位数据。
+5.cat /proc/3139/maps //查看进程的虚拟内存区域
+
+
+
+
+
+
+
+
